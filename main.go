@@ -1,17 +1,15 @@
 package main
 
 import (
-	"bytes"
-	"compress/gzip"
-	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
-	"os"
+	"reflect"
 
 	"github.com/gofiber/fiber"
 	"github.com/gofiber/fiber/middleware"
+	"github.com/vmihailenco/msgpack"
+
+	"go.playplay.example/helper"
 )
 
 func main() {
@@ -20,13 +18,14 @@ func main() {
 	app := fiber.New()
 
 	app.Get("/", getFeedLogsJSON)
-	app.Get("/compress", middleware.Compress(2), getFeedLogsJSONGzip)
+	app.Get("/gzip", middleware.Compress(2), getFeedLogsJSONGzip)
+	app.Get("/msgpack", getFeedLogsMsgpck)
 
 	app.Listen(2516)
 }
 
 func getFeedLogsJSON(c *fiber.Ctx) {
-	feedLogsMap, err := readJSONAsMap()
+	feedLogsMap, err := helper.ReadJSONAsMap()
 
 	if err != nil {
 		c.Status(500).Send(err)
@@ -42,7 +41,7 @@ func getFeedLogsJSON(c *fiber.Ctx) {
 func getFeedLogsJSONGzip(c *fiber.Ctx) {
 	c.Type("gzip")
 
-	feedLogsMap, err := readJSONAsMap()
+	feedLogsMap, err := helper.ReadJSONAsMap()
 
 	if err != nil {
 		c.Status(500).Send(err)
@@ -55,109 +54,51 @@ func getFeedLogsJSONGzip(c *fiber.Ctx) {
 	}
 }
 
-func readJSONAsString() (string, error) {
-	jsonFile, err := os.Open("resources/feedlogs.json")
+func getFeedLogsMsgpck(c *fiber.Ctx) {
+	feedLogsMap, err := helper.ReadJSONAsMap()
+
+	fmt.Println("original size:\t", len(feedLogsMap))
 
 	if err != nil {
-		fmt.Println(err)
-		return "", err
+		c.Status(500).Send(err)
+		return
 	}
 
-	defer jsonFile.Close()
-
-	byteValue, err := ioutil.ReadAll(jsonFile)
-
+	feedLogsPacked, err := msgpack.Marshal(feedLogsMap)
 	if err != nil {
-		fmt.Println(err)
-		return "", err
+		c.Status(500).Send(err)
+		return
 	}
+	fmt.Println("packed size", len(feedLogsPacked))
 
-	return string(byteValue), nil
-}
-
-func readJSONAsMap() (map[string]interface{}, error) {
-	jsonFile, err := os.Open("resources/feedlogs.json")
-
+	var feedLogsUnpacked map[string]interface{}
+	err = msgpack.Unmarshal(feedLogsPacked, &feedLogsUnpacked)
 	if err != nil {
-		fmt.Println(err)
-		return nil, err
+		c.Status(500).Send(err)
+		return
 	}
-
-	defer jsonFile.Close()
-
-	byteValue, err := ioutil.ReadAll(jsonFile)
-
-	if err != nil {
-		fmt.Println(err)
-		return nil, err
-	}
-
-	var result map[string]interface{}
-	json.Unmarshal([]byte(byteValue), &result)
-
-	return result, nil
+	fmt.Println("unpacked size", len(feedLogsUnpacked))
+	fmt.Println(reflect.DeepEqual(feedLogsMap, feedLogsUnpacked))
 }
 
 func testGzip() {
-	data, err := readJSONAsString()
+	data, err := helper.ReadJSONAsString()
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("original size:\t", len(data))
 
 	// compress data
-	compressedData, compressedDataErr := gZipData([]byte(data))
+	compressedData, compressedDataErr := helper.GzipData([]byte(data))
 	if compressedDataErr != nil {
 		log.Fatal(compressedDataErr)
 	}
 	fmt.Println("compressed data len:", len(compressedData))
 
 	// uncompress data
-	uncompressedData, uncompressedDataErr := gUnzipData(compressedData)
+	uncompressedData, uncompressedDataErr := helper.GunzipData(compressedData)
 	if uncompressedDataErr != nil {
 		log.Fatal(uncompressedDataErr)
 	}
 	fmt.Println("uncompressed data len:", len(uncompressedData))
-}
-
-func gZipData(data []byte) (compressedData []byte, err error) {
-	var b bytes.Buffer
-	gz, err := gzip.NewWriterLevel(&b, gzip.BestCompression)
-
-	_, err = gz.Write(data)
-	if err != nil {
-		return
-	}
-
-	if err = gz.Flush(); err != nil {
-		return
-	}
-
-	if err = gz.Close(); err != nil {
-		return
-	}
-
-	compressedData = b.Bytes()
-
-	return
-}
-
-func gUnzipData(data []byte) (resData []byte, err error) {
-	b := bytes.NewBuffer(data)
-
-	var r io.Reader
-	r, err = gzip.NewReader(b)
-	if err != nil {
-		return
-	}
-
-	var resB bytes.Buffer
-	_, err = resB.ReadFrom(r)
-	if err != nil {
-		return
-	}
-
-	resData = resB.Bytes()
-
-	return
 }
