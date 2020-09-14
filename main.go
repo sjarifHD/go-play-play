@@ -1,21 +1,27 @@
 package main
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"reflect"
 
+	"github.com/gofiber/cors"
 	"github.com/gofiber/fiber"
 	"github.com/gofiber/fiber/middleware"
+	"github.com/qinains/fastergoding"
 	"github.com/vmihailenco/msgpack"
 
 	"go.playplay.example/helper"
 )
 
 func main() {
+	fastergoding.Run()
 	testGzip()
 
 	app := fiber.New()
+	app.Use(cors.New())
 
 	app.Get("/", getFeedLogsJSON)
 	app.Get("/gzip", middleware.Compress(2), getFeedLogsJSONGzip)
@@ -57,7 +63,8 @@ func getFeedLogsJSONGzip(c *fiber.Ctx) {
 func getFeedLogsMsgpck(c *fiber.Ctx) {
 	feedLogsMap, err := helper.ReadJSONAsMap()
 
-	fmt.Println("original size:\t", len(feedLogsMap))
+	var feedJason, _ = json.Marshal(feedLogsMap)
+	fmt.Println("original size:\t", len(feedJason))
 
 	if err != nil {
 		c.Status(500).Send(err)
@@ -79,6 +86,13 @@ func getFeedLogsMsgpck(c *fiber.Ctx) {
 	}
 	fmt.Println("unpacked size", len(feedLogsUnpacked))
 	fmt.Println(reflect.DeepEqual(feedLogsMap, feedLogsUnpacked))
+
+	var feedLogsPackedHex = hex.EncodeToString(feedLogsPacked)
+	fmt.Println("packed hex size", len(feedLogsPackedHex))
+
+	c.Status(200).Send(feedLogsPackedHex)
+	return
+
 }
 
 func testGzip() {
